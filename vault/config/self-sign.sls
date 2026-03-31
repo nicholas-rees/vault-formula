@@ -11,6 +11,6 @@ vault-config-self-signed-cmd-script:
   cmd.script:
     - source: salt://vault/files/cert-gen.sh.j2
     - template: jinja
-    - args: {{ vault.self_signed_cert.hostname }} {{ vault.self_signed_cert.password }}
+    - args: {{ vault.self_signed_cert.hostname }}
     - cwd: {{ vault.config_path }}/vault
     - creates: {{ vault.config_path }}/vault/{{ vault.self_signed_cert.hostname }}.pem

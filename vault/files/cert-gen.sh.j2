@@ -1,5 +1,6 @@
 {% from "vault/map.jinja" import vault with context -%}
 {% set vssc = vault.self_signed_cert -%}
+{%- set config_path = vault.config_path -%}
 #!/usr/bin/env sh
 
 ###
@@ -8,23 +9,15 @@
 root=$1
 shift
 if [ -z "$root" ]; then
-  echo "you must pass 2 arguments; first for root name, second for child name"
+  echo "you must pass 1 argument; the root name"
   exit
 fi
 
-###
- # Check for child name
- ##
-child=$1
-if [ -z "$child" ]; then
-  echo "you must pass 2 arguments; first for root name ($root), second for child name"
-  exit
-fi
+child="leaf"
 
-###
- # Use the child name as the password because Java Keystore requires it
- ##
-pw="$child"
+pw=$(< /dev/urandom tr -dc 'A-Za-z0-9!@#$%&*' | head -c32)
+
+echo "${child}" > "{{ config_path }}/vault/self_signed_cert_password"
 
 ###
  # Generate the root certificate
@@ -32,8 +25,31 @@ pw="$child"
 root_key="$root.key"
 root_pem="$root.pem"
 root_key_nopass="$root-nopass.key"
-root_subj="/C={{ vssc.country }}/ST={{ vssc.state }}/L={{ vssc.city }}/O={{ vssc.org }}/OU={{ vssc.org_unit }}/CN=$root\_ca"
 root_p12="$root.p12"
+
+tmp_config=$(mktemp)
+cat > "$tmp_config" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = {{ vssc.country }}
+ST = {{ vssc.state }}
+L =  {{ vssc.city }}
+O = {{ vssc.org }}
+OU = {{ vssc.org_unit }}
+CN = ${root}_ca
+
+[v3_req]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = ${root}
+DNS.2 = localhost
+IP.1 = 127.0.0.1
+EOF
 
 ###
  # Generate the root private key
@@ -52,8 +68,10 @@ if [ -e "$root_pem" ]; then
   echo "$root_pem already exits"
 else
   echo "generate $root_pem"
-  openssl req -new -x509 -days 3652 -key "$root_key" -out "$root_pem" -passin pass:"$pw" -subj "$root_subj"
+  openssl req -new -x509 -days 3652 -key "$root_key" -out "$root_pem" -passin pass:"$pw" -config "$tmp_config" -extensions v3_req
 fi
+
+rm "$tmp_config"
 
 ###
  # Generate the root public key (P12)
